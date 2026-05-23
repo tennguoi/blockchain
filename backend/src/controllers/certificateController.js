@@ -52,6 +52,7 @@ export const issueCertificate = async (req, res) => {
       txHash
     });
   } catch (error) {
+    console.error('Error in issueCertificate:', error);
     // Clean up file if error occurs
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);

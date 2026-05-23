@@ -4,6 +4,8 @@ import { certAPI } from '../services/api';
 import { Award, Users, FileX, ShieldAlert, Plus, CheckCircle, Loader } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+import { QRCodeSVG } from 'qrcode.react';
+
 const AdminDashboard = () => {
   const { user } = useAuth();
   const [stats, setStats] = useState({ total: 0, revoked: 0, active: 0 });
@@ -38,6 +40,8 @@ const AdminDashboard = () => {
     }
   };
 
+  const [issuedCert, setIssuedCert] = useState(null); // Trạng thái lưu chứng chỉ vừa tạo để hiển thị QR
+
   const handleIssueSubmit = async (e) => {
     e.preventDefault();
     if (!file) {
@@ -52,9 +56,13 @@ const AdminDashboard = () => {
     try {
       await certAPI.issue(formData);
       toast.success('Cấp phát văn bằng thành công!');
+      
+      // Hiển thị QR Code cho văn bằng vừa tạo
+      setIssuedCert(issueForm);
+      
+      // Reset form
       setIssueForm({ ...issueForm, certificateId: '', studentId: '', studentName: '', major: '', gpa: '' });
       setFile(null);
-      // Reset file input UI manually if needed
       document.getElementById('fileUpload').value = '';
       fetchStats();
     } catch (error) {
@@ -229,6 +237,48 @@ const AdminDashboard = () => {
           </div>
         )}
       </div>
+
+      {/* Modal hiển thị QR Code sau khi cấp phát */}
+      {issuedCert && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
+          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', 
+          justifyContent: 'center', alignItems: 'center', zIndex: 1000
+        }}>
+          <div className="glass-card animate-fade-in" style={{ maxWidth: '500px', width: '100%', textAlign: 'center', padding: '2rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem' }}>
+              <CheckCircle size={48} color="var(--success)" />
+            </div>
+            <h2 style={{ marginBottom: '1rem', color: 'var(--success)' }}>Cấp Phát Thành Công!</h2>
+            <p style={{ marginBottom: '1.5rem', color: 'var(--text-secondary)' }}>
+              Văn bằng của sinh viên <strong>{issuedCert.studentName}</strong> đã được lưu lên Blockchain.
+            </p>
+            
+            <div style={{ background: 'white', padding: '1rem', borderRadius: '12px', display: 'inline-block', marginBottom: '1.5rem' }}>
+              <QRCodeSVG 
+                value={`${window.location.origin}/verify?id=${issuedCert.certificateId}`}
+                size={200}
+                bgColor={"#ffffff"}
+                fgColor={"#0f172a"}
+                level={"Q"}
+              />
+            </div>
+            
+            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '2rem' }}>
+              Mã văn bằng: <strong>{issuedCert.certificateId}</strong><br/>
+              Bạn có thể tải hoặc in mã QR này để dán lên bản cứng.
+            </p>
+
+            <button 
+              className="btn btn-primary" 
+              onClick={() => setIssuedCert(null)}
+              style={{ width: '100%', padding: '0.75rem' }}
+            >
+              Đóng và tiếp tục cấp phát
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

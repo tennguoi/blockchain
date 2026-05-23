@@ -1,24 +1,27 @@
-import React, { useState } from 'react';
-import { Search, CheckCircle, XCircle, Award, Calendar, GraduationCap, User } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Search, CheckCircle, XCircle, Award, Calendar, GraduationCap, User, QrCode } from 'lucide-react';
 import { certAPI } from '../services/api';
 import toast from 'react-hot-toast';
+import { Html5QrcodeScanner } from 'html5-qrcode';
 
 const VerifyPage = () => {
   const [certId, setCertId] = useState('');
   const [result, setResult] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const [searchParams] = useSearchParams();
 
-  const handleVerify = async (e) => {
-    e.preventDefault();
-    if (!certId.trim()) return;
+  const verifyCertificate = async (idToVerify) => {
+    if (!idToVerify || !idToVerify.trim()) return;
 
     setIsLoading(true);
     setHasSearched(true);
     setResult(null);
 
     try {
-      const response = await certAPI.verify(certId);
+      const response = await certAPI.verify(idToVerify);
       setResult(response.data.data);
       toast.success('Xác minh thành công!');
     } catch (error) {
@@ -29,6 +32,56 @@ const VerifyPage = () => {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    const urlId = searchParams.get('id');
+    if (urlId) {
+      setCertId(urlId);
+      verifyCertificate(urlId);
+    }
+  }, [searchParams]);
+
+  const handleVerify = (e) => {
+    e.preventDefault();
+    verifyCertificate(certId);
+  };
+
+  useEffect(() => {
+    let scanner = null;
+    if (isScanning) {
+      scanner = new Html5QrcodeScanner(
+        "reader",
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        false
+      );
+      
+      scanner.render((decodedText) => {
+        let idFromQR = decodedText;
+        try {
+          const url = new URL(decodedText);
+          const urlParams = new URLSearchParams(url.search);
+          if (urlParams.has('id')) {
+            idFromQR = urlParams.get('id');
+          }
+        } catch (e) {
+          // Nếu không phải là URL, dùng chuỗi được quét làm ID
+        }
+        
+        scanner.clear();
+        setIsScanning(false);
+        setCertId(idFromQR);
+        verifyCertificate(idFromQR);
+      }, (error) => {
+        // Bỏ qua các lỗi quét (thường xảy ra khi khung hình chưa rõ mã QR)
+      });
+    }
+
+    return () => {
+      if (scanner) {
+        scanner.clear().catch(e => console.error("Scanner clear error", e));
+      }
+    };
+  }, [isScanning]);
 
   const formatDate = (timestamp) => {
     if (!timestamp) return '';
@@ -47,20 +100,38 @@ const VerifyPage = () => {
         </p>
       </div>
 
+      {isScanning && (
+        <div className="glass-card animate-fade-in" style={{ marginBottom: '2rem', padding: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h3 style={{ margin: 0 }}>Quét mã QR</h3>
+            <button className="btn btn-outline" onClick={() => setIsScanning(false)} style={{ padding: '0.25rem 0.75rem' }}>Đóng</button>
+          </div>
+          <div id="reader" style={{ width: '100%', maxWidth: '500px', margin: '0 auto' }}></div>
+        </div>
+      )}
+
       <div className="glass-card" style={{ marginBottom: '2rem' }}>
-        <form onSubmit={handleVerify} style={{ display: 'flex', gap: '1rem' }}>
-          <div style={{ flex: 1 }}>
+        <form onSubmit={handleVerify} style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: '250px' }}>
             <input 
               type="text" 
               className="form-control" 
               placeholder="Nhập mã số văn bằng (VD: VB-2024-001)"
               value={certId}
               onChange={(e) => setCertId(e.target.value)}
-              style={{ padding: '1rem', fontSize: '1.1rem' }}
+              style={{ padding: '1rem', fontSize: '1.1rem', height: '100%' }}
             />
           </div>
-          <button type="submit" className="btn btn-primary" style={{ padding: '0 2rem' }} disabled={isLoading}>
+          <button type="submit" className="btn btn-primary" style={{ padding: '0 1.5rem', whiteSpace: 'nowrap' }} disabled={isLoading}>
             {isLoading ? 'Đang kiểm tra...' : <><Search size={20} /> Kiểm tra</>}
+          </button>
+          <button 
+            type="button" 
+            className="btn btn-outline" 
+            onClick={() => setIsScanning(!isScanning)}
+            style={{ padding: '0 1.5rem', whiteSpace: 'nowrap' }}
+          >
+            <QrCode size={20} /> Quét mã QR
           </button>
         </form>
       </div>
@@ -79,7 +150,7 @@ const VerifyPage = () => {
                 </div>
               </div>
 
-              <div className="grid-cards" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+              <div className="grid-cards" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
                 <div style={{ display: 'flex', gap: '1rem' }}>
                   <User color="var(--primary)" />
                   <div>
@@ -113,7 +184,7 @@ const VerifyPage = () => {
                 </div>
               </div>
 
-              <div style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
                 <div style={{ fontSize: '0.875rem' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>Ngày cấp: </span>
                   {formatDate(result.issuedAt)}

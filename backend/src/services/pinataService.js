@@ -23,7 +23,7 @@ export const uploadFileToIPFS = async (filePath, name) => {
     
     // Convert to readable stream or file obj for pinata sdk
     const upload = await pinata.upload.file(file);
-    return upload.IpfsHash;
+    return upload.cid;
   } catch (error) {
     console.error('Error uploading file to Pinata:', error);
     throw new Error('Không thể upload file lên IPFS');
@@ -38,7 +38,7 @@ export const uploadFileToIPFS = async (filePath, name) => {
 export const uploadJSONToIPFS = async (metadata) => {
   try {
     const upload = await pinata.upload.json(metadata);
-    return upload.IpfsHash;
+    return upload.cid;
   } catch (error) {
     console.error('Error uploading JSON to Pinata:', error);
     throw new Error('Không thể upload metadata lên IPFS');
