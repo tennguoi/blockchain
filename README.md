@@ -88,6 +88,134 @@ Dự án bao gồm 3 phần chính:
 3. **Đăng nhập Sinh viên**: Đăng nhập bằng tài khoản Student. Bạn sẽ thấy văn bằng vừa được cấp cùng mã QR.
 4. **Xác minh công khai**: Bất kỳ ai vào trang chủ `/verify`, nhập ID văn bằng (ví dụ `VB-2024-001`) để hệ thống kiểm tra dữ liệu Blockchain và xác nhận.
 
+---
+
+## 🔐 Cơ Chế Authentication & Metamask Login
+
+### Tổng Quan
+
+Hệ thống hỗ trợ **2 cách đăng nhập** cho mỗi người dùng (Admin & Sinh viên):
+1. **Email/Password** - Đăng nhập truyền thống
+2. **Metamask (Web3 Wallet)** - Đăng nhập phi tập trung
+
+### Quan Trọng ⚠️
+
+**Cùng một tài khoản** có thể sử dụng cả 2 phương thức đăng nhập:
+- Admin đăng nhập Email → Tạo JWT với `role: 'admin'`
+- Admin liên kết ví Metamask → Đăng nhập qua Metamask → Vẫn lấy JWT với `role: 'admin'` (cùng tài khoản)
+
+```
+┌─────────────────────────────────────────┐
+│  ADMIN TÀI KHOẢN (userId = 1)           │
+├─────────────────────────────────────────┤
+│                                         │
+│  ├─ Email/Password:                     │
+│  │  admin@university.edu / admin123    │
+│  │  → JWT { role: 'admin' }             │
+│  │                                     │
+│  └─ Metamask Wallet:                    │
+│     0xAAA... (sau khi liên kết)         │
+│     → JWT { role: 'admin' }             │
+│     ✅ CÙ NG TÀI KHOẢN (userId = 1)   │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+### Quy Trình Liên Kết Ví (Link Wallet)
+
+1. **Đăng nhập bằng Email trước** (để lấy JWT token)
+2. **Gọi endpoint `/api/auth/link-wallet`**
+   ```bash
+   POST /api/auth/link-wallet
+   Headers: Authorization: Bearer <JWT_TOKEN>
+   Body: {
+     "walletAddress": "0xAAA...",
+     "signature": "<WEB3_SIGNATURE>"
+   }
+   ```
+3. **System xác minh chữ ký** (sử dụng ethers.js)
+4. **Cập nhật walletAddress** vào database
+5. **Từ bây giờ có thể đăng nhập qua Metamask**
+
+### Ưu Điểm & Bảo Vệ
+
+| Tính Năng | Chi Tiết |
+|-----------|---------|
+| **Liên kết 1 lần** | Mỗi user chỉ liên kết được 1 ví, không thể đổi tùy tiện (phòng admin mất tài khoản) |
+| **Chữ ký số** | Không lưu private key trên server, chỉ xác minh chữ ký |
+| **Cùng quyền** | Dù đăng nhập Email hay Metamask, role vẫn như nhau (admin/student) |
+| **Blockchain Rights** | Admin role trên Backend **khác** với ADMIN_ROLE trên Smart Contract |
+
+### Phân Biệt: Backend Admin vs Blockchain ADMIN_ROLE
+
+```
+┌──────────────────────────────────────────────────┐
+│ Backend Authentication (JWT)                     │
+├──────────────────────────────────────────────────┤
+│ - Check: role = 'admin' trong JWT                │
+│ - Kiểm soát: Quyền truy cập API (issue cert)    │
+│ - Nơi lưu: Database (Prisma/PostgreSQL)         │
+│                                                  │
+├──────────────────────────────────────────────────┤
+│ Blockchain Authorization (Smart Contract)       │
+├──────────────────────────────────────────────────┤
+│ - Check: hasRole(ADMIN_ROLE) từ AccessControl   │
+│ - Kiểm soát: Quyền thi hành hàm trên contract   │
+│ - Nơi lưu: Ethereum Storage (Blockchain)        │
+│ - Cấp bởi: addIssuer() function                 │
+│                                                  │
+└──────────────────────────────────────────────────┘
+```
+
+### Setup Metamask Admin Login
+
+**Để admin có thể đăng nhập qua Metamask:**
+
+1. Cập nhật `backend/seed.js` - thêm walletAddress cho admin:
+   ```javascript
+   const admin = await prisma.user.create({
+     data: {
+       email: 'admin@university.edu',
+       password: adminPasswordHash,
+       name: 'Phòng Đào Tạo',
+       role: 'admin',
+       walletAddress: '0x...' // ← Metamask address của admin
+     }
+   });
+   ```
+
+2. Cập nhật `backend/.env`:
+   ```env
+   ADMIN_WALLET_ADDRESS=0x...
+   ADMIN_PRIVATE_KEY=...  # Dùng để ký giao dịch blockchain
+   ```
+
+3. Cập nhật `blockchain/scripts/deploy.js` - cấp ADMIN_ROLE cho wallet:
+   ```javascript
+   // Thêm hàm này
+   async function grantAdminRoleToWallet(registry, walletAddress) {
+     console.log(`⏳ Granting ADMIN_ROLE to ${walletAddress}...`);
+     const tx = await registry.addIssuer(walletAddress);
+     await tx.wait();
+     console.log(`✅ ADMIN_ROLE granted`);
+   }
+   
+   // Trong main(), sau khi deploy:
+   await grantAdminRoleToWallet(registry, process.env.ADMIN_WALLET_ADDRESS);
+   ```
+
+4. Deploy lại:
+   ```bash
+   npx hardhat run scripts/deploy.js --network localhost
+   ```
+
+5. Seed dữ liệu:
+   ```bash
+   node backend/seed.js
+   ```
+
+---
+
 ## Tech Stack
 - **Smart Contract**: Solidity 0.8.20, OpenZeppelin, Hardhat
 - **Backend**: Express, Mongoose, bcrypt, jsonwebtoken, pinata SDK, ethers.js
