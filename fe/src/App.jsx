@@ -13,6 +13,7 @@ import LandingPage from './pages/LandingPage';
 import VerifyPage from './pages/VerifyPage';
 import AdminDashboard from './pages/AdminDashboard';
 import StudentPortal from './pages/StudentPortal';
+import SuperAdminDashboard from './pages/SuperAdminDashboard';
 
 function App() {
   return (
@@ -29,9 +30,17 @@ function App() {
           {/* Protected Routes with Sidebar */}
           <Route element={<DashboardLayout />}>
             <Route 
+              path="/super-admin/*" 
+              element={
+                <ProtectedRoute allowedRoles={['super_admin']}>
+                  <SuperAdminDashboard />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
               path="/admin/*" 
               element={
-                <ProtectedRoute allowedRoles={['admin']}>
+                <ProtectedRoute allowedRoles={['admin', 'institution_admin']}>
                   <AdminDashboard />
                 </ProtectedRoute>
               } 

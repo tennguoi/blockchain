@@ -1,0 +1,240 @@
+{
+  "info": {
+    "name": "Blockchain Certificate API",
+    "description": "API collection for Blockchain Certificate Management System. Import this collection into Postman.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000/api" },
+    { "key": "token", "value": "" },
+    { "key": "adminToken", "value": "" },
+    { "key": "certificateId", "value": "VB-2025-001" },
+    { "key": "studentId", "value": "SV2024001" }
+  ],
+  "item": [
+    {
+      "name": "1. Health Check",
+      "item": [
+        {
+          "name": "GET /api/health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is ok or degraded', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 503]);",
+                  "});",
+                  "pm.test('Checks exist', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.checks).to.have.property('database');",
+                  "  pm.expect(json.checks).to.have.property('rpc');",
+                  "  pm.expect(json.checks).to.have.property('ipfs');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Auth",
+      "item": [
+        {
+          "name": "Login as Admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('adminToken', json.token);",
+                  "pm.test('Login successful', () => {",
+                  "  pm.expect(pm.response.code).to.equal(200);",
+                  "  pm.expect(json.token).to.not.be.empty;",
+                  "  pm.expect(json.user.role).to.equal('admin');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"email\": \"admin@university.edu\", \"password\": \"admin123\" }"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "Login as Student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('token', json.token);",
+                  "pm.test('Login successful', () => {",
+                  "  pm.expect(pm.response.code).to.equal(200);",
+                  "  pm.expect(json.token).to.not.be.empty;",
+                  "  pm.expect(json.user.role).to.equal('student');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"email\": \"student@university.edu\", \"password\": \"student123\" }"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Certificates",
+      "item": [
+        {
+          "name": "Issue Certificate (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('Certificate issued', () => {",
+                  "  pm.expect(pm.response.code).to.equal(201);",
+                  "  pm.expect(json.certificateId).to.not.be.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "certificateId", "value": "{{certificateId}}", "type": "text" },
+                { "key": "studentId", "value": "{{studentId}}", "type": "text" },
+                { "key": "studentName", "value": "Nguyen Van A", "type": "text" },
+                { "key": "universityName", "value": "Dai hoc Blockchain Viet Nam", "type": "text" },
+                { "key": "degree", "value": "Ky Su", "type": "text" },
+                { "key": "major", "value": "Cong Nghe Thong Tin", "type": "text" },
+                { "key": "graduationYear", "value": "2025", "type": "text" },
+                { "key": "gpa", "value": "3.6", "type": "text" },
+                { "key": "file", "type": "file", "src": "/path/to/sample.pdf" }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/certificates/issue", "host": ["{{baseUrl}}"], "path": ["certificates", "issue"] }
+          }
+        },
+        {
+          "name": "Verify Certificate (Public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/certificates/verify/{{certificateId}}", "host": ["{{baseUrl}}"], "path": ["certificates", "verify", "{{certificateId}}"] }
+          }
+        },
+        {
+          "name": "Revoke Certificate (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"reason\": \"Test thu hoi\" }"
+            },
+            "url": { "raw": "{{baseUrl}}/certificates/revoke/{{certificateId}}", "host": ["{{baseUrl}}"], "path": ["certificates", "revoke", "{{certificateId}}"] }
+          }
+        },
+        {
+          "name": "Get Stats (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": { "raw": "{{baseUrl}}/certificates/stats", "host": ["{{baseUrl}}"], "path": ["certificates", "stats"] }
+          }
+        },
+        {
+          "name": "Get Student Certificates",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/certificates/student/{{studentId}}", "host": ["{{baseUrl}}"], "path": ["certificates", "student", "{{studentId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Admin API",
+      "item": [
+        {
+          "name": "GET /api/admin/dashboard",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": { "raw": "{{baseUrl}}/admin/dashboard", "host": ["{{baseUrl}}"], "path": ["admin", "dashboard"] }
+          }
+        },
+        {
+          "name": "GET /api/admin/certificates",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/admin/certificates?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "certificates"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "GET /api/admin/certificates/failed",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": { "raw": "{{baseUrl}}/admin/certificates/failed", "host": ["{{baseUrl}}"], "path": ["admin", "certificates", "failed"] }
+          }
+        },
+        {
+          "name": "GET /api/admin/audit-logs",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": { "raw": "{{baseUrl}}/admin/audit-logs", "host": ["{{baseUrl}}"], "path": ["admin", "audit-logs"] }
+          }
+        },
+        {
+          "name": "GET /api/admin/verification-logs",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": { "raw": "{{baseUrl}}/admin/verification-logs", "host": ["{{baseUrl}}"], "path": ["admin", "verification-logs"] }
+          }
+        }
+      ]
+    }
+  ]
+}

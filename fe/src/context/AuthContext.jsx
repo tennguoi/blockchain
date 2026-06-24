@@ -40,39 +40,18 @@ export const AuthProvider = ({ children }) => {
   };
 
   const loginWithMetaMask = async (walletAddress, signature) => {
-    console.log('\n========== AUTH CONTEXT: loginWithMetaMask ==========');
-    console.log('[CONTEXT] walletAddress:', walletAddress);
-    console.log('[CONTEXT] signature:', signature ? signature.substring(0, 30) + '...' : 'NULL');
-    console.log('[CONTEXT] signature length:', signature?.length);
     try {
-      console.log('[CONTEXT] Sending request to authAPI.loginMetamask...');
       const res = await authAPI.loginMetamask({ walletAddress, signature });
-      console.log('[CONTEXT] Response received:', {
-        status: res.status,
-        data: res.data
-      });
       const { user, token } = res.data;
-      
-      console.log('[CONTEXT] User data:', user);
-      console.log('[CONTEXT] Token received:', token ? 'YES (length: ' + token.length + ')' : 'NO');
-      
+
       setUser(user);
       localStorage.setItem('user', JSON.stringify(user));
       localStorage.setItem('token', token);
-      
-      console.log('[CONTEXT] Login successful! User saved to localStorage');
+
       toast.success('Đăng nhập bằng MetaMask thành công!');
       return user;
     } catch (error) {
-      console.log('[CONTEXT] ERROR caught in loginWithMetaMask:');
-      console.log('[CONTEXT] error.name:', error.name);
-      console.log('[CONTEXT] error.message:', error.message);
-      console.log('[CONTEXT] error.response?.status:', error.response?.status);
-      console.log('[CONTEXT] error.response?.data:', error.response?.data);
-      console.log('[CONTEXT] error.code:', error.code);
-      
       const msg = error.response?.data?.error || 'Đăng nhập ví thất bại';
-      console.log('[CONTEXT] Error message to display:', msg);
       toast.error(msg);
       throw new Error(msg, { cause: error });
     }

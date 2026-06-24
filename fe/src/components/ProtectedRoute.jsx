@@ -19,7 +19,10 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
     // Chuyển hướng nếu không đúng role
-    return <Navigate to={user.role === 'admin' ? '/admin' : '/student'} replace />;
+    let redirectPath = '/student';
+    if (user.role === 'super_admin') redirectPath = '/super-admin';
+    else if (user.role === 'admin' || user.role === 'institution_admin') redirectPath = '/admin';
+    return <Navigate to={redirectPath} replace />;
   }
 
   return children;

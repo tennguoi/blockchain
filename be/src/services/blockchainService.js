@@ -9,7 +9,6 @@ const __dirname = path.dirname(__filename);
 const abiCandidatePaths = [
   path.resolve(__dirname, '../../../bc/deployments/CertificateRegistry.abi.json'),
   path.resolve(__dirname, '../../../bc/artifacts/contracts/CertificateRegistry.sol/CertificateRegistry.json'),
-  path.resolve(__dirname, '../../../blockchain/deployments/CertificateRegistry.abi.json'),
 ];
 
 const loadContractABI = () => {
@@ -35,34 +34,83 @@ const loadContractABI = () => {
 
 const contractABI = loadContractABI();
 
+const loadContractBytecode = () => {
+  for (const abiPath of abiCandidatePaths) {
+    if (!fs.existsSync(abiPath)) {
+      continue;
+    }
+
+    const parsed = JSON.parse(fs.readFileSync(abiPath, 'utf8'));
+    if (parsed?.bytecode) {
+      return typeof parsed.bytecode === 'object' ? parsed.bytecode.object : parsed.bytecode;
+    }
+  }
+
+  throw new Error(
+    `Unable to load CertificateRegistry Bytecode. Checked: ${abiCandidatePaths.join(', ')}`
+  );
+};
+
 // Khởi tạo provider và signer
 const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
 const wallet = new ethers.Wallet(process.env.ADMIN_PRIVATE_KEY, provider);
 
-// Khởi tạo contract instance
-const getContract = () => {
-  if (!process.env.CONTRACT_ADDRESS) {
-    throw new Error('Missing CONTRACT_ADDRESS in backend environment');
+// Khởi tạo contract instance động
+const getContract = (contractAddress) => {
+  const address = contractAddress || process.env.CONTRACT_ADDRESS;
+  if (!address) {
+    throw new Error('Missing CONTRACT_ADDRESS');
   }
 
-  return new ethers.Contract(process.env.CONTRACT_ADDRESS, contractABI, wallet);
+  return new ethers.Contract(address, contractABI, wallet);
 };
 
-export const ensureIssuerCanIssue = async () => {
-  const contract = getContract();
+const toBytes32Hash = (hash) => {
+  if (!hash) {
+    throw new Error('Missing certificate hash');
+  }
+
+  const normalized = hash.startsWith('0x') ? hash : `0x${hash}`;
+
+  if (!ethers.isHexString(normalized, 32)) {
+    throw new Error('Certificate hash must be a 32-byte hex string');
+  }
+
+  return normalized;
+};
+
+const fromBytes32Hash = (hash) => `${hash || ''}`.replace(/^0x/i, '').toLowerCase();
+
+export const deployNewContract = async (institutionName) => {
+  try {
+    const bytecode = loadContractBytecode();
+    const factory = new ethers.ContractFactory(contractABI, bytecode, wallet);
+    const contract = await factory.deploy(institutionName);
+    await contract.waitForDeployment();
+    const contractAddress = await contract.getAddress();
+    console.log(`🚀 Smart Contract deployed for ${institutionName} at ${contractAddress}`);
+    return contractAddress;
+  } catch (error) {
+    console.error('❌ Dynamic smart contract deployment failed:', error);
+    throw error;
+  }
+};
+
+export const ensureIssuerCanIssue = async (contractAddress) => {
+  const contract = getContract(contractAddress);
   const walletAddress = await wallet.getAddress();
   const issuerRole = await contract.ISSUER_ROLE();
   const hasIssuerRole = await contract.hasRole(issuerRole, walletAddress);
 
   if (!hasIssuerRole) {
     throw new Error(
-      `Backend wallet ${walletAddress} does not have ISSUER_ROLE on contract ${process.env.CONTRACT_ADDRESS}`
+      `Backend wallet ${walletAddress} does not have ISSUER_ROLE on contract ${contractAddress || process.env.CONTRACT_ADDRESS}`
     );
   }
 };
 
-export const issueCertificateOnChain = async (certData) => {
-  const contract = getContract();
+export const issueCertificateOnChain = async (contractAddress, certData) => {
+  const contract = getContract(contractAddress);
 
   if (typeof contract.issueCertificate !== 'function') {
     throw new Error('Contract ABI does not expose issueCertificate(). Check deployed ABI and contract address.');
@@ -70,14 +118,7 @@ export const issueCertificateOnChain = async (certData) => {
   
   const tx = await contract.issueCertificate(
     certData.certificateId,
-    certData.studentId,
-    certData.studentName,
-    certData.universityName,
-    certData.degree,
-    certData.major,
-    certData.graduationYear,
-    certData.gpa,
-    certData.ipfsCID,
+    toBytes32Hash(certData.certificateHash),
     certData.ipfsMetadataCID
   );
   
@@ -85,40 +126,75 @@ export const issueCertificateOnChain = async (certData) => {
   return receipt.hash; // Trả về transaction hash
 };
 
-export const revokeCertificateOnChain = async (certificateId, reason) => {
-  const contract = getContract();
+export const revokeCertificateOnChain = async (contractAddress, certificateId, reason) => {
+  const contract = getContract(contractAddress);
   const tx = await contract.revokeCertificate(certificateId, reason);
   const receipt = await tx.wait();
   return receipt.hash;
 };
 
-export const getCertificateFromChain = async (certificateId) => {
-  const contract = getContract();
-  const cert = await contract.getCertificate(certificateId);
+export const getCertificateFromChain = async (contractAddress, certificateId) => {
+  const contract = getContract(contractAddress);
+  const cert = await contract.getCertificateProof(certificateId);
   return cert;
 };
 
-export const verifyCertificateOnChain = async (certificateId) => {
-  const contract = getContract();
-  const result = await contract.verifyCertificate(certificateId);
+export const getCertificateProofFromChain = async (contractAddress, certificateId) => {
+  const contract = getContract(contractAddress);
+
+  try {
+    const proof = await contract.getCertificateProof(certificateId);
+    const revokedAt = Number(proof.revokedAt);
+
+    return {
+      exists: true,
+      isValid: revokedAt === 0,
+      revoked: revokedAt !== 0,
+      certificateHash: fromBytes32Hash(proof.certificateHash),
+      metadataCid: proof.metadataCID,
+      issuer: proof.issuer,
+      issuedAt: Number(proof.issuedAt),
+      revokedAt,
+    };
+  } catch {
+    return {
+      exists: false,
+      isValid: false,
+      revoked: false,
+      certificateHash: null,
+      metadataCid: null,
+      issuer: null,
+      issuedAt: 0,
+      revokedAt: 0,
+    };
+  }
+};
+
+export const verifyCertificateOnChain = async (contractAddress, certificateId, expectedHash) => {
+  const contract = getContract(contractAddress);
+  const proof = await getCertificateProofFromChain(contractAddress, certificateId);
+
+  if (!proof.exists || proof.revoked) {
+    return proof;
+  }
+
+  if (!expectedHash) {
+    return proof;
+  }
+
+  const isValid = await contract.verifyCertificate(
+    certificateId,
+    toBytes32Hash(expectedHash)
+  );
+
   return {
-    isValid: result.isValid,
-    studentName: result.studentName,
-    degree: result.degree,
-    major: result.major,
-    graduationYear: result.graduationYear,
-    ipfsCID: result.ipfsCID,
-    issuedAt: Number(result.issuedAt)
+    ...proof,
+    isValid,
   };
 };
 
-export const getStudentCertificates = async (studentId) => {
-  const contract = getContract();
-  return await contract.getStudentCertificates(studentId);
-};
-
-export const getStats = async () => {
-  const contract = getContract();
+export const getStats = async (contractAddress) => {
+  const contract = getContract(contractAddress);
   const stats = await contract.getStats();
   return {
     total: Number(stats.total),

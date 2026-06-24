@@ -7,14 +7,104 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum InstitutionStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+}
+
+model Institution {
+  id              String            @id @default(uuid())
+  name            String
+  code            String            @unique
+  email           String            @default("admin@university.edu")
+  contractAddress String?           @unique
+  chainId         Int?
+  status          InstitutionStatus @default(PENDING)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  users        User[]
+  certificates Certificate[]
+}
+
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  password  String
-  role      String   @default("student")
-  name      String
-  studentId     String?  @unique
-  walletAddress String?  @unique
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                   String    @id @default(uuid())
+  email                String    @unique
+  password             String
+  role                 String    @default("student") // super_admin, institution_admin, student
+  name                 String
+  studentId            String?
+  walletAddress        String?   @unique
+  walletNonce          String?   @unique
+  walletNonceExpiresAt DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  institutionId String?
+  institution   Institution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+
+  studentCertificates Certificate[] @relation("StudentCertificates")
+  issuedCertificates  Certificate[] @relation("IssuerCertificates")
+  auditLogs           AuditLog[]
+
+  @@unique([institutionId, studentId])
+}
+
+model Certificate {
+  id              String @id @default(uuid())
+  certificateCode String @unique
+  studentCode     String
+  studentName     String
+  universityName  String
+  degree          String
+  major           String
+  graduationYear  String
+  gpa             String
+
+  fileCid         String?
+  metadataCid     String?
+  certificateHash String?
+  txHash          String?
+  revokeTxHash    String?
+  contractAddress String?
+  chainId         Int?
+  status          String    @default("DRAFT")
+  revokedReason   String?
+  revokedAt       DateTime?
+
+  studentUserId String?
+  studentUser   User?   @relation("StudentCertificates", fields: [studentUserId], references: [id], onDelete: SetNull)
+  issuerUserId  String?
+  issuerUser    User?   @relation("IssuerCertificates", fields: [issuerUserId], references: [id], onDelete: SetNull)
+  
+  institutionId String?
+  institution   Institution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  verificationLogs VerificationLog[]
+}
+
+model VerificationLog {
+  id              String       @id @default(uuid())
+  certificateCode String
+  result          String
+  verifierIpHash  String?
+  userAgent       String?
+  certificateId   String?
+  certificate     Certificate? @relation(fields: [certificateId], references: [id], onDelete: SetNull)
+  createdAt       DateTime     @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action     String
+  targetType String
+  targetId   String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
 }

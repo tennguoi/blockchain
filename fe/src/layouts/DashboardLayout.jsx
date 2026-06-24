@@ -12,6 +12,7 @@ import {
   Wallet,
   ShieldAlert,
   Activity,
+  Plus,
 } from 'lucide-react';
 import AnimatedMeshBackground from '../components/AnimatedMeshBackground';
 import AnimatedOutlet from '../components/AnimatedOutlet';
@@ -65,7 +66,8 @@ const DashboardLayout = () => {
 
   const adminLinks = [
     { name: 'Dashboard', path: '/admin', icon: <LayoutDashboard size={20} /> },
-    { name: 'Issue Certificate', path: '/admin#issue', icon: <FileBadge size={20} /> },
+    { name: 'Certificates', path: '/admin#certificates', icon: <FileBadge size={20} /> },
+    { name: 'Issue Certificate', path: '/admin#issue', icon: <Plus size={20} /> },
     { name: 'Revoke', path: '/admin#revoke', icon: <ShieldAlert size={20} /> },
     { name: 'Verify', path: '/verify', icon: <Search size={20} /> },
   ];
@@ -75,7 +77,19 @@ const DashboardLayout = () => {
     { name: 'Verify', path: '/verify', icon: <Search size={20} /> },
   ];
 
-  const navLinks = user?.role === 'admin' ? adminLinks : studentLinks;
+  const superAdminLinks = [
+    { name: 'Dashboard', path: '/super-admin', icon: <LayoutDashboard size={20} /> },
+    { name: 'Pending Requests', path: '/super-admin#pending', icon: <Activity size={20} /> },
+    { name: 'Institutions', path: '/super-admin#institutions', icon: <GraduationCap size={20} /> },
+    { name: 'Verify', path: '/verify', icon: <Search size={20} /> },
+  ];
+
+  let navLinks = studentLinks;
+  if (user?.role === 'super_admin') {
+    navLinks = superAdminLinks;
+  } else if (user?.role === 'admin' || user?.role === 'institution_admin') {
+    navLinks = adminLinks;
+  }
 
   const isActive = (path) => {
     const [pathname, rawHash] = path.split('#');

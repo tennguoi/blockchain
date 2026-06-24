@@ -1,29 +1,34 @@
-# 🎓 Blockchain Certificate Management System
+# Blockchain Certificate Management System
 
 Hệ thống quản lý, cấp phát và xác minh văn bằng số phi tập trung sử dụng công nghệ Blockchain (Ethereum/Hardhat) và IPFS (Pinata).
 
 ## Kiến Trúc Hệ Thống
 
 Dự án bao gồm 3 phần chính:
-1. **Blockchain (`/blockchain`)**: Smart Contract viết bằng Solidity, test và deploy bằng Hardhat.
-2. **Backend (`/backend`)**: Node.js + Express REST API, xử lý Authentication, giao tiếp với IPFS (Pinata) và tương tác với Smart Contract bằng ethers.js.
-3. **Frontend (`/frontend`)**: React.js + Vite, giao diện người dùng chia làm 3 phân hệ (Công khai, Sinh viên, Admin).
+1. **Blockchain (`bc/`)**: Smart Contract viết bằng Solidity, test và deploy bằng Hardhat.
+2. **Backend (`be/`)**: Node.js + Express REST API, PostgreSQL (Prisma), giao tiếp với IPFS (Pinata) và tương tác với Smart Contract bằng ethers.js.
+3. **Frontend (`fe/`)**: React.js + Vite, giao diện người dùng chia làm 3 phân hệ (Công khai, Sinh viên, Admin).
+
+## Quick Start (Dùng `run_all.py`)
+
+```bash
+python run_all.py
+```
+Script sẽ mở 3 cửa sổ CMD riêng cho Blockchain Node, Backend, Frontend.
 
 ---
 
-## 🚀 Hướng Dẫn Cài Đặt và Chạy Dự Án
+## Hướng Dẫn Cài Đặt và Chạy Dự Án
 
 ### Yêu cầu hệ thống:
 - Node.js (v18+)
-- MongoDB chạy ở local (port mặc định 27017)
+- PostgreSQL (chạy ở local, port mặc định 5432)
 - Khóa API của Pinata (để lưu trữ IPFS)
 
----
-
 ### Bước 1: Khởi động Blockchain Local Node & Deploy
-1. Mở terminal, đi tới thư mục `blockchain`:
+1. Mở terminal, đi tới thư mục `bc/`:
    ```bash
-   cd blockchain
+   cd bc
    npm install
    ```
 2. Khởi động mạng Hardhat cục bộ:
@@ -32,42 +37,44 @@ Dự án bao gồm 3 phần chính:
    ```
    *(Để terminal này mở liên tục)*
 
-3. Mở một terminal khác, đi tới thư mục `blockchain` và deploy hợp đồng:
+3. Mở một terminal khác, đi tới thư mục `bc/` và deploy hợp đồng:
    ```bash
-   cd blockchain
+   cd bc
    npx hardhat run scripts/deploy.js --network localhost
    ```
 
----
-
 ### Bước 2: Chạy Backend Server
-1. Đi tới thư mục `backend`:
+1. Đi tới thư mục `be/`:
    ```bash
-   cd backend
+   cd be
    npm install
    ```
-2. Cấu hình file `.env`:
-   - Đảm bảo bạn đã có file `.env` (copy từ `.env.example` hoặc mẫu có sẵn).
-   - Điền Pinata JWT của bạn vào `PINATA_JWT`.
-   - Nếu bạn deploy lại contract, hãy cập nhật `CONTRACT_ADDRESS` với địa chỉ mới.
-3. Khởi tạo dữ liệu mẫu (Admin & Student accounts):
+2. Cấu hình file `.env` (copy từ `.env.example`):
+   ```bash
+   cp .env.example .env
+   ```
+   - Điền Pinata JWT vào `PINATA_JWT`
+   - Điền `DATABASE_URL` cho PostgreSQL
+   - Nếu deploy lại contract, cập nhật `CONTRACT_ADDRESS`
+3. Chạy Prisma migration:
+   ```bash
+   npx prisma migrate dev
+   ```
+4. Khởi tạo dữ liệu mẫu (Admin & Student accounts):
    ```bash
    node seed.js
    ```
-   *Tài khoản Admin: admin@university.edu / admin123*  
+   *Tài khoản Admin: admin@university.edu / admin123*
    *Tài khoản Student: student@university.edu / student123*
-
-4. Khởi động server (sẽ chạy ở port 5000):
+5. Khởi động server (port 5000):
    ```bash
    npm run dev
    ```
 
----
-
 ### Bước 3: Chạy Frontend (React)
-1. Mở terminal mới, đi tới thư mục `frontend`:
+1. Mở terminal mới, đi tới thư mục `fe/`:
    ```bash
-   cd frontend
+   cd fe
    npm install
    ```
 2. Khởi động Vite server:
@@ -78,145 +85,83 @@ Dự án bao gồm 3 phần chính:
 
 ---
 
-## 🛠️ Quy Trình Sử Dụng (End-to-End Flow)
+## API Endpoints
 
-1. **Đăng nhập Admin**: Truy cập `/login` với tài khoản Admin.
-2. **Cấp phát bằng**: Trong Admin Dashboard, điền thông tin và tải lên 1 file PDF (hoặc ảnh) giả định. Nhấn cấp phát.
-   - *Hệ thống sẽ upload file lên IPFS.*
-   - *Upload JSON metadata lên IPFS.*
-   - *Gửi giao dịch lên Blockchain.*
-3. **Đăng nhập Sinh viên**: Đăng nhập bằng tài khoản Student. Bạn sẽ thấy văn bằng vừa được cấp cùng mã QR.
-4. **Xác minh công khai**: Bất kỳ ai vào trang chủ `/verify`, nhập ID văn bằng (ví dụ `VB-2024-001`) để hệ thống kiểm tra dữ liệu Blockchain và xác nhận.
+### Health Check
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| GET | `/api/health` | Kiểm tra DB, RPC, IPFS, Contract |
+
+### Auth (`/api/auth`)
+| Method | Endpoint | Auth | Mô tả |
+|--------|----------|------|-------|
+| POST | `/login` | - | Đăng nhập email/password |
+| POST | `/login-metamask/nonce` | - | Lấy nonce đăng nhập MetaMask |
+| POST | `/login-metamask` | - | Đăng nhập MetaMask |
+| POST | `/link-wallet/nonce` | JWT | Lấy nonce liên kết ví |
+| POST | `/link-wallet` | JWT | Liên kết ví MetaMask |
+| POST | `/unlink-wallet` | JWT | Hủy liên kết ví |
+| POST | `/register-admin` | JWT+Admin | Tạo tài khoản admin |
+| POST | `/register-student` | JWT+Admin | Tạo tài khoản sinh viên |
+
+### Certificates (`/api/certificates`)
+| Method | Endpoint | Auth | Mô tả |
+|--------|----------|------|-------|
+| GET | `/verify/:id` | Public | Xác minh văn bằng công khai |
+| GET | `/student/:studentId` | JWT+Self/Admin | DS văn bằng của sinh viên |
+| POST | `/issue` | JWT+Admin+File | Cấp phát văn bằng mới |
+| POST | `/revoke/:id` | JWT+Admin | Thu hồi văn bằng |
+| GET | `/stats` | JWT+Admin | Thống kê dashboard |
+
+### Admin (`/api/admin`) — tất cả đều yêu cầu JWT+Admin
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| GET | `/certificates` | Danh sách văn bằng (phân trang, lọc, tìm kiếm) |
+| GET | `/certificates/failed` | DS văn bằng lỗi cần reconcile |
+| GET | `/certificates/:id` | Chi tiết văn bằng (kèm chain proof, logs) |
+| POST | `/certificates/:id/reconcile` | Retry/reconcile văn bằng lỗi |
+| GET | `/audit-logs` | Audit logs (phân trang, lọc) |
+| GET | `/verification-logs` | Verification logs (phân trang, lọc) |
+| GET | `/dashboard` | Dashboard tổng hợp (DB + Blockchain) |
 
 ---
 
-## 🔐 Cơ Chế Authentication & Metamask Login
+## Xử Lý Lỗi & Reconcile
+
+Khi cấp phát văn bằng, nếu IPFS upload thành công nhưng blockchain fail, văn bằng được gắn trạng thái `FAILED` hoặc `IPFS_UPLOADED`.
+
+**Cách reconcile:**
+1. Gọi `GET /api/admin/certificates/failed` để lấy danh sách
+2. Gọi `POST /api/admin/certificates/:id/reconcile` để thử lại giao dịch blockchain
+3. Hệ thống sẽ kiểm tra nếu đã tồn tại trên chain hoặc thực hiện issue mới
+
+---
+
+## Cơ Chế Authentication & Metamask Login
 
 ### Tổng Quan
-
 Hệ thống hỗ trợ **2 cách đăng nhập** cho mỗi người dùng (Admin & Sinh viên):
-1. **Email/Password** - Đăng nhập truyền thống
-2. **Metamask (Web3 Wallet)** - Đăng nhập phi tập trung
+1. **Email/Password** — Đăng nhập truyền thống
+2. **Metamask (Web3 Wallet)** — Đăng nhập phi tập trung
 
-### Quan Trọng ⚠️
+**Cùng một tài khoản** có thể sử dụng cả 2 phương thức đăng nhập.
 
-**Cùng một tài khoản** có thể sử dụng cả 2 phương thức đăng nhập:
-- Admin đăng nhập Email → Tạo JWT với `role: 'admin'`
-- Admin liên kết ví Metamask → Đăng nhập qua Metamask → Vẫn lấy JWT với `role: 'admin'` (cùng tài khoản)
-
-```
-┌─────────────────────────────────────────┐
-│  ADMIN TÀI KHOẢN (userId = 1)           │
-├─────────────────────────────────────────┤
-│                                         │
-│  ├─ Email/Password:                     │
-│  │  admin@university.edu / admin123    │
-│  │  → JWT { role: 'admin' }             │
-│  │                                     │
-│  └─ Metamask Wallet:                    │
-│     0xAAA... (sau khi liên kết)         │
-│     → JWT { role: 'admin' }             │
-│     ✅ CÙ NG TÀI KHOẢN (userId = 1)   │
-│                                         │
-└─────────────────────────────────────────┘
-```
-
-### Quy Trình Liên Kết Ví (Link Wallet)
-
-1. **Đăng nhập bằng Email trước** (để lấy JWT token)
-2. **Gọi endpoint `/api/auth/link-wallet`**
-   ```bash
-   POST /api/auth/link-wallet
-   Headers: Authorization: Bearer <JWT_TOKEN>
-   Body: {
-     "walletAddress": "0xAAA...",
-     "signature": "<WEB3_SIGNATURE>"
-   }
-   ```
-3. **System xác minh chữ ký** (sử dụng ethers.js)
-4. **Cập nhật walletAddress** vào database
-5. **Từ bây giờ có thể đăng nhập qua Metamask**
-
-### Ưu Điểm & Bảo Vệ
-
-| Tính Năng | Chi Tiết |
-|-----------|---------|
-| **Liên kết 1 lần** | Mỗi user chỉ liên kết được 1 ví, không thể đổi tùy tiện (phòng admin mất tài khoản) |
-| **Chữ ký số** | Không lưu private key trên server, chỉ xác minh chữ ký |
-| **Cùng quyền** | Dù đăng nhập Email hay Metamask, role vẫn như nhau (admin/student) |
-| **Blockchain Rights** | Admin role trên Backend **khác** với ADMIN_ROLE trên Smart Contract |
-
-### Phân Biệt: Backend Admin vs Blockchain ADMIN_ROLE
-
-```
-┌──────────────────────────────────────────────────┐
-│ Backend Authentication (JWT)                     │
-├──────────────────────────────────────────────────┤
-│ - Check: role = 'admin' trong JWT                │
-│ - Kiểm soát: Quyền truy cập API (issue cert)    │
-│ - Nơi lưu: Database (Prisma/PostgreSQL)         │
-│                                                  │
-├──────────────────────────────────────────────────┤
-│ Blockchain Authorization (Smart Contract)       │
-├──────────────────────────────────────────────────┤
-│ - Check: hasRole(ADMIN_ROLE) từ AccessControl   │
-│ - Kiểm soát: Quyền thi hành hàm trên contract   │
-│ - Nơi lưu: Ethereum Storage (Blockchain)        │
-│ - Cấp bởi: addIssuer() function                 │
-│                                                  │
-└──────────────────────────────────────────────────┘
-```
+### Quy Trình Liên Kết Ví
+1. Đăng nhập bằng Email trước
+2. Gọi `POST /api/auth/link-wallet/nonce` → nhận nonce
+3. Ký nonce bằng MetaMask
+4. Gọi `POST /api/auth/link-wallet` với signature
 
 ### Setup Metamask Admin Login
-
-**Để admin có thể đăng nhập qua Metamask:**
-
-1. Cập nhật `backend/seed.js` - thêm walletAddress cho admin:
-   ```javascript
-   const admin = await prisma.user.create({
-     data: {
-       email: 'admin@university.edu',
-       password: adminPasswordHash,
-       name: 'Phòng Đào Tạo',
-       role: 'admin',
-       walletAddress: '0x...' // ← Metamask address của admin
-     }
-   });
-   ```
-
-2. Cập nhật `backend/.env`:
-   ```env
-   ADMIN_WALLET_ADDRESS=0x...
-   ADMIN_PRIVATE_KEY=...  # Dùng để ký giao dịch blockchain
-   ```
-
-3. Cập nhật `blockchain/scripts/deploy.js` - cấp ADMIN_ROLE cho wallet:
-   ```javascript
-   // Thêm hàm này
-   async function grantAdminRoleToWallet(registry, walletAddress) {
-     console.log(`⏳ Granting ADMIN_ROLE to ${walletAddress}...`);
-     const tx = await registry.addIssuer(walletAddress);
-     await tx.wait();
-     console.log(`✅ ADMIN_ROLE granted`);
-   }
-   
-   // Trong main(), sau khi deploy:
-   await grantAdminRoleToWallet(registry, process.env.ADMIN_WALLET_ADDRESS);
-   ```
-
-4. Deploy lại:
-   ```bash
-   npx hardhat run scripts/deploy.js --network localhost
-   ```
-
-5. Seed dữ liệu:
-   ```bash
-   node backend/seed.js
-   ```
+1. Thêm `walletAddress` cho admin trong `be/seed.js`
+2. Cập nhật `be/.env` với `ADMIN_PRIVATE_KEY`
+3. Cấp `ISSUER_ROLE` trong deploy script
+4. Deploy lại contract
+5. Seed dữ liệu
 
 ---
 
 ## Tech Stack
 - **Smart Contract**: Solidity 0.8.20, OpenZeppelin, Hardhat
-- **Backend**: Express, Mongoose, bcrypt, jsonwebtoken, pinata SDK, ethers.js
+- **Backend**: Express, Prisma (PostgreSQL), bcrypt, jsonwebtoken, pinata SDK, ethers.js
 - **Frontend**: React 18, Vite, react-router-dom, react-hot-toast, framer-motion, lucide-react

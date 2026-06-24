@@ -17,9 +17,9 @@ def run_in_new_console(command, cwd, title):
 if __name__ == "__main__":
     base_dir = os.path.dirname(os.path.abspath(__file__))
     
-    blockchain_dir = os.path.join(base_dir, "blockchain")
-    backend_dir = os.path.join(base_dir, "backend")
-    frontend_dir = os.path.join(base_dir, "frontend")
+    blockchain_dir = os.path.join(base_dir, "bc")
+    backend_dir = os.path.join(base_dir, "be")
+    frontend_dir = os.path.join(base_dir, "fe")
 
     print("🚀 Đang khởi động toàn bộ hệ thống Blockchain Certificate...")
 

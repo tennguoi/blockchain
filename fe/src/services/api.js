@@ -6,38 +6,29 @@ const api = axios.create({
   baseURL: API_URL,
 });
 
-// Interceptor add token
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
-  console.log(`[DEBUG API] ${config.method.toUpperCase()} ${config.baseURL}${config.url}`);
-  console.log('[DEBUG API] Request data:', JSON.stringify(config.data, null, 2));
   return config;
 });
 
 api.interceptors.response.use(
-  (response) => {
-    console.log(`[DEBUG API] Response ${response.status}:`, JSON.stringify(response.data, null, 2));
-    return response;
-  },
+  (response) => response,
   (error) => {
-    console.log(`[DEBUG API] ERROR ${error.response?.status || 'NO RESPONSE'}:`);
-    console.log('  url:', error.config?.url);
-    console.log('  method:', error.config?.method);
-    console.log('  requestData:', error.config?.data ? JSON.parse(error.config.data) : null);
-    console.log('  responseData:', JSON.stringify(error.response?.data, null, 2));
-    console.log('  message:', error.message);
     return Promise.reject(error);
   }
 );
 
 export const authAPI = {
   login: (credentials) => api.post('/auth/login', credentials),
+  getMetamaskLoginNonce: (data) => api.post('/auth/login-metamask/nonce', data),
   loginMetamask: (data) => api.post('/auth/login-metamask', data),
+  getLinkWalletNonce: (data) => api.post('/auth/link-wallet/nonce', data),
   linkWallet: (data) => api.post('/auth/link-wallet', data),
   unlinkWallet: () => api.post('/auth/unlink-wallet'),
+  registerStudent: (data) => api.post('/auth/register-student', data),
 };
 
 export const certAPI = {
@@ -48,6 +39,27 @@ export const certAPI = {
   getStudentCerts: (studentId) => api.get(`/certificates/student/${studentId}`),
   revoke: (id, reason) => api.post(`/certificates/revoke/${id}`, { reason }),
   getStats: () => api.get('/certificates/stats'),
+};
+
+export const adminAPI = {
+  getCertificates: (params) => api.get('/admin/certificates', { params }),
+  getFailedCertificates: () => api.get('/admin/certificates/failed'),
+  getCertificateDetail: (id) => api.get(`/admin/certificates/${id}`),
+  reconcile: (id) => api.post(`/admin/certificates/${id}/reconcile`),
+  getAuditLogs: (params) => api.get('/admin/audit-logs', { params }),
+  getVerificationLogs: (params) => api.get('/admin/verification-logs', { params }),
+  getDashboard: () => api.get('/admin/dashboard'),
+  getStudents: () => api.get('/admin/students'),
+};
+
+export const superAdminAPI = {
+  registerRequest: (data) => api.post('/super-admin/institutions', data),
+  getPending: () => api.get('/super-admin/pending'),
+  getInstitutions: () => api.get('/super-admin/institutions'),
+  approve: (id) => api.post(`/super-admin/approve/${id}`),
+  suspend: (id) => api.post(`/super-admin/suspend/${id}`),
+  activate: (id) => api.post(`/super-admin/activate/${id}`),
+  getDashboard: () => api.get('/super-admin/dashboard'),
 };
 
 export default api;

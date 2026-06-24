@@ -1,7 +1,89 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 import prisma from '../services/db.js';
 import { ethers } from 'ethers';
+
+const WALLET_NONCE_TTL_MS = 5 * 60 * 1000;
+
+const normalizeWalletAddress = (walletAddress) => `${walletAddress || ''}`.toLowerCase();
+
+const createNonce = () => crypto.randomBytes(24).toString('hex');
+
+const createWalletMessage = ({ action, walletAddress, nonce }) => {
+  const normalizedAddress = normalizeWalletAddress(walletAddress);
+  const actionText = action === 'link' ? 'liên kết ví' : 'đăng nhập';
+
+  return [
+    `BlockCert ${actionText}`,
+    `Wallet: ${normalizedAddress}`,
+    `Nonce: ${nonce}`,
+    'Nonce này chỉ dùng một lần và hết hạn sau 5 phút.'
+  ].join('\n');
+};
+
+const issueWalletNonce = async ({ userId, walletAddress, action }) => {
+  const nonce = createNonce();
+  const expiresAt = new Date(Date.now() + WALLET_NONCE_TTL_MS);
+  const message = createWalletMessage({ action, walletAddress, nonce });
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      walletNonce: nonce,
+      walletNonceExpiresAt: expiresAt,
+    },
+  });
+
+  return { nonce, expiresAt, message };
+};
+
+const verifyAndConsumeWalletNonce = async ({ user, walletAddress, signature, action }) => {
+  const normalizedAddress = normalizeWalletAddress(walletAddress);
+
+  if (!user.walletNonce || !user.walletNonceExpiresAt) {
+    const error = new Error('Nonce không tồn tại hoặc đã được sử dụng');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (user.walletNonceExpiresAt.getTime() < Date.now()) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { walletNonce: null, walletNonceExpiresAt: null },
+    });
+
+    const error = new Error('Nonce đã hết hạn');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const message = createWalletMessage({
+    action,
+    walletAddress: normalizedAddress,
+    nonce: user.walletNonce,
+  });
+
+  let recoveredAddress;
+  try {
+    recoveredAddress = ethers.verifyMessage(message, signature);
+  } catch (verifyError) {
+    const error = new Error('Chữ ký số không hợp lệ');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (recoveredAddress.toLowerCase() !== normalizedAddress) {
+    const error = new Error('Chữ ký số không hợp lệ hoặc không khớp với địa chỉ ví');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { walletNonce: null, walletNonceExpiresAt: null },
+  });
+};
 
 export const login = async (req, res) => {
   try {
@@ -21,7 +103,7 @@ export const login = async (req, res) => {
 
     // Tạo JWT token
     const token = jwt.sign(
-      { userId: user.id, role: user.role, studentId: user.studentId },
+      { userId: user.id, role: user.role, studentId: user.studentId, institutionId: user.institutionId },
       process.env.JWT_SECRET,
       { expiresIn: '1d' }
     );
@@ -35,10 +117,86 @@ export const login = async (req, res) => {
         email: user.email,
         role: user.role,
         studentId: user.studentId,
+        institutionId: user.institutionId,
         walletAddress: user.walletAddress,
       }
     });
   } catch (error) {
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+};
+
+export const getMetamaskLoginNonce = async (req, res) => {
+  try {
+    const { walletAddress } = req.body;
+
+    if (!walletAddress) {
+      return res.status(400).json({ error: 'Thiếu địa chỉ ví' });
+    }
+
+    const normalizedAddress = normalizeWalletAddress(walletAddress);
+    const user = await prisma.user.findUnique({
+      where: { walletAddress: normalizedAddress },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'Địa chỉ ví này chưa được liên kết với tài khoản nào' });
+    }
+
+    const nonceData = await issueWalletNonce({
+      userId: user.id,
+      walletAddress: normalizedAddress,
+      action: 'login',
+    });
+
+    res.json(nonceData);
+  } catch (error) {
+    console.error('Error in getMetamaskLoginNonce:', error);
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+};
+
+export const getLinkWalletNonce = async (req, res) => {
+  try {
+    const { walletAddress } = req.body;
+
+    if (!walletAddress) {
+      return res.status(400).json({ error: 'Thiếu địa chỉ ví' });
+    }
+
+    const normalizedAddress = normalizeWalletAddress(walletAddress);
+    const existingWallet = await prisma.user.findFirst({
+      where: {
+        walletAddress: normalizedAddress,
+        NOT: { id: req.user.userId },
+      },
+    });
+
+    if (existingWallet) {
+      return res.status(400).json({ error: 'Địa chỉ ví này đã được liên kết với một tài khoản khác' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.userId },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'Không tìm thấy người dùng' });
+    }
+
+    if (user.walletAddress) {
+      return res.status(400).json({ error: 'Tài khoản này đã được liên kết với một ví khác. Vui lòng liên hệ Admin để thay đổi.' });
+    }
+
+    const nonceData = await issueWalletNonce({
+      userId: user.id,
+      walletAddress: normalizedAddress,
+      action: 'link',
+    });
+
+    res.json(nonceData);
+  } catch (error) {
+    console.error('Error in getLinkWalletNonce:', error);
     res.status(500).json({ error: 'Lỗi server' });
   }
 };
@@ -53,13 +211,14 @@ export const registerAdmin = async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const admin = await prisma.user.create({
+    await prisma.user.create({
       data: { email, password: hashedPassword, name, role: 'admin' }
     });
 
     res.status(201).json({ message: 'Tạo tài khoản admin thành công' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error in registerAdmin:', error);
+    res.status(500).json({ error: 'Lỗi server' });
   }
 };
 
@@ -86,12 +245,20 @@ export const registerStudent = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, salt);
 
     const student = await prisma.user.create({
-      data: { email, password: hashedPassword, name, studentId, role: 'student' }
+      data: {
+        email,
+        password: hashedPassword,
+        name,
+        studentId,
+        role: 'student',
+        institutionId: req.user.institutionId,
+      }
     });
 
     res.status(201).json({ message: 'Tạo tài khoản sinh viên thành công' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error in registerStudent:', error);
+    res.status(500).json({ error: 'Lỗi server' });
   }
 };
 
@@ -103,15 +270,7 @@ export const linkWallet = async (req, res) => {
       return res.status(400).json({ error: 'Thiếu địa chỉ ví hoặc chữ ký' });
     }
 
-    const normalizedAddress = walletAddress.toLowerCase();
-
-    // 1. Xác thực chữ ký số
-    const message = `Tôi xác nhận muốn liên kết ví ${normalizedAddress} với tài khoản ${req.user.userId}`;
-    const recoveredAddress = ethers.verifyMessage(message, signature);
-
-    if (recoveredAddress.toLowerCase() !== normalizedAddress) {
-      return res.status(400).json({ error: 'Chữ ký số không hợp lệ hoặc không khớp với địa chỉ ví' });
-    }
+    const normalizedAddress = normalizeWalletAddress(walletAddress);
 
     // 2. Kiểm tra ví đã được liên kết với ai khác chưa
     const existingWallet = await prisma.user.findFirst({
@@ -135,6 +294,13 @@ export const linkWallet = async (req, res) => {
       return res.status(400).json({ error: 'Tài khoản này đã được liên kết với một ví khác. Vui lòng liên hệ Admin để thay đổi.' });
     }
 
+    await verifyAndConsumeWalletNonce({
+      user,
+      walletAddress: normalizedAddress,
+      signature,
+      action: 'link',
+    });
+
     // 5. Cập nhật ví
     const updatedUser = await prisma.user.update({
       where: { id: req.user.userId },
@@ -149,11 +315,13 @@ export const linkWallet = async (req, res) => {
         email: updatedUser.email,
         role: updatedUser.role,
         studentId: updatedUser.studentId,
+        institutionId: updatedUser.institutionId,
         walletAddress: updatedUser.walletAddress
       }
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error in linkWallet:', error);
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : 'Lỗi server' });
   }
 };
 
@@ -184,11 +352,13 @@ export const unlinkWallet = async (req, res) => {
         email: updatedUser.email,
         role: updatedUser.role,
         studentId: updatedUser.studentId,
+        institutionId: updatedUser.institutionId,
         walletAddress: updatedUser.walletAddress
       }
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error in unlinkWallet:', error);
+    res.status(500).json({ error: 'Lỗi server' });
   }
 };
 
@@ -196,78 +366,40 @@ export const loginMetamask = async (req, res) => {
   try {
     const { walletAddress, signature } = req.body;
 
-    console.log('\n========== METAMASK LOGIN DEBUG ==========');
-    console.log('[DEBUG] walletAddress received:', walletAddress);
-    console.log('[DEBUG] signature received:', signature ? signature.substring(0, 30) + '...' : 'NULL');
-    console.log('[DEBUG] signature length:', signature?.length);
-
     if (!walletAddress || !signature) {
-      console.log('[DEBUG] FAIL: Missing walletAddress or signature');
       return res.status(400).json({ error: 'Thiếu địa chỉ ví hoặc chữ ký' });
     }
 
-    const normalizedAddress = walletAddress.toLowerCase();
-    console.log('[DEBUG] normalizedAddress:', normalizedAddress);
-
-    // 1. Xác thực chữ ký số
-    const message = `Tôi xác nhận đăng nhập vào hệ thống BlockCert bằng ví ${normalizedAddress}`;
-    console.log('[DEBUG] message to recover:', message);
-
-    let recoveredAddress;
-    try {
-      recoveredAddress = ethers.verifyMessage(message, signature);
-      console.log('[DEBUG] recoveredAddress:', recoveredAddress);
-    } catch (verifyError) {
-      console.log('[DEBUG] SIGNATURE VERIFICATION FAILED:', verifyError.message);
-      return res.status(400).json({ error: `Chữ ký số không hợp lệ: ${verifyError.message}` });
-    }
-
-    if (recoveredAddress.toLowerCase() !== normalizedAddress) {
-      console.log('[DEBUG] FAIL: Address mismatch');
-      console.log('[DEBUG]   recoveredAddress.toLowerCase():', recoveredAddress.toLowerCase());
-      console.log('[DEBUG]   normalizedAddress:', normalizedAddress);
-      return res.status(400).json({ error: 'Chữ ký số không hợp lệ hoặc không khớp với địa chỉ ví' });
-    }
-    console.log('[DEBUG] Signature verification: PASSED');
+    const normalizedAddress = normalizeWalletAddress(walletAddress);
 
     // 2. Tìm user có ví này
-    console.log('[DEBUG] Looking up user with walletAddress:', normalizedAddress);
     let user;
     try {
       user = await prisma.user.findUnique({
         where: { walletAddress: normalizedAddress }
       });
     } catch (dbError) {
-      console.log('[DEBUG] DATABASE ERROR:', dbError.message);
-      return res.status(500).json({ error: `Lỗi database: ${dbError.message}` });
+      console.error('Database error in loginMetamask:', dbError);
+      return res.status(500).json({ error: 'Lỗi server' });
     }
 
     if (!user) {
-      console.log('[DEBUG] FAIL: No user found with this wallet address');
-      // Kiểm tra xem có user nào trong DB không
-      try {
-        const totalUsers = await prisma.user.count();
-        console.log('[DEBUG] Total users in DB:', totalUsers);
-        const allWallets = await prisma.user.findMany({ select: { walletAddress: true, email: true } });
-        console.log('[DEBUG] All users (wallet + email):', JSON.stringify(allWallets, null, 2));
-      } catch (countError) {
-        console.log('[DEBUG] Could not query user count:', countError.message);
-      }
       return res.status(404).json({ error: 'Địa chỉ ví này chưa được liên kết với tài khoản nào. Vui lòng đăng nhập bằng Email/Password trước để liên kết ví.' });
     }
 
-    console.log('[DEBUG] User found:', { id: user.id, email: user.email, role: user.role });
+    await verifyAndConsumeWalletNonce({
+      user,
+      walletAddress: normalizedAddress,
+      signature,
+      action: 'login',
+    });
 
     // 3. Tạo JWT token
     const token = jwt.sign(
-      { userId: user.id, role: user.role, studentId: user.studentId },
+      { userId: user.id, role: user.role, studentId: user.studentId, institutionId: user.institutionId },
       process.env.JWT_SECRET,
       { expiresIn: '1d' }
     );
-    console.log('[DEBUG] JWT generated successfully');
-
-    console.log('[DEBUG] LOGIN SUCCESS for user:', user.email);
-    console.log('========== END METAMASK DEBUG ==========\n');
 
     res.json({
       message: 'Đăng nhập thành công bằng MetaMask',
@@ -278,12 +410,12 @@ export const loginMetamask = async (req, res) => {
         email: user.email,
         role: user.role,
         studentId: user.studentId,
+        institutionId: user.institutionId,
         walletAddress: user.walletAddress
       }
     });
   } catch (error) {
-    console.log('[DEBUG] UNEXPECTED ERROR in loginMetamask:', error.message);
-    console.log('[DEBUG] Stack:', error.stack);
-    res.status(500).json({ error: error.message });
+    console.error('Error in loginMetamask:', error);
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : 'Lỗi server' });
   }
 };
